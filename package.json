@@ -1,7 +1,7 @@
 {
   "name": "jmeter-style-reporter",
-  "version": "1.0.1",
-  "description": "Unified performance testing and reporting system with JMeter-style HTML reports and high-performance data collection",
+  "version": "1.1.1",
+  "description": "Enhanced performance testing and reporting system with interactive JMeter-style HTML reports, APDEX scoring, percentile calculations, Chart.js visualizations, and drill-down analytics",
   "keywords": [
     "jmeter",
     "performance",
@@ -18,7 +18,14 @@
     "axios",
     "jest",
     "middleware",
-    "interceptor"
+    "interceptor",
+    "apdex",
+    "percentiles",
+    "chartjs",
+    "interactive",
+    "dashboard",
+    "analytics",
+    "drill-down"
   ],
   "homepage": "https://github.com/tapanagkumar/jmeter-style-reporter#readme",
   "bugs": {
