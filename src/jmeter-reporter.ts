@@ -49,6 +49,14 @@ export interface ReportOptions {
   skipDataValidation?: boolean
   jenkinsCompatible?: boolean
   embeddedCharts?: boolean
+  compareToPrevious?: boolean
+  buildComparisonPath?: string
+  generateXml?: boolean
+  performanceThresholds?: {
+    warningThreshold?: number // ms
+    errorThreshold?: number // ms
+    errorRateThreshold?: number // percentage (0-1)
+  }
 }
 
 export interface ReportResult {
@@ -74,6 +82,7 @@ export interface ReportResult {
     recordsProcessed: number
     recordsSkipped: number
   }
+  summaryJsonPath?: string
 }
 
 // JMeter CSV format record
@@ -105,6 +114,26 @@ interface EndpointStats {
   receivedKB: number
   avgBytes: number
   apdexScore?: number
+  previousAverage?: number
+  averageDelta?: number
+  performanceTrend?: 'improved' | 'degraded' | 'stable'
+}
+
+interface BuildComparisonData {
+  buildNumber?: string
+  timestamp: number
+  endpoints: Record<string, {
+    average: number
+    samples: number
+    errorRate: number
+    throughput: number
+  }>
+  summary: {
+    totalRequests: number
+    averageResponseTime: number
+    errorRate: number
+    throughput: number
+  }
 }
 
 interface TimeSeriesPoint {
@@ -148,6 +177,7 @@ export class JMeterPerformanceCollector {
   private flushCount: number = 0
   private readonly startTime: number = Date.now()
   private dataIntegrityHash: string = ''
+  private cleanupListener?: () => void
 
   constructor(options: CollectorOptions) {
     this.options = {
@@ -178,17 +208,17 @@ export class JMeterPerformanceCollector {
       this.flushTimer.unref?.()
     }
 
-    // Add cleanup on process exit
-    const cleanup = () => {
+    // Add cleanup on process exit with proper listener tracking
+    this.cleanupListener = () => {
       if (!this.disposed) {
         this.dispose().catch(console.error)
       }
     }
     
-    process.on('exit', cleanup)
-    process.on('SIGINT', cleanup)
-    process.on('SIGTERM', cleanup)
-    process.on('uncaughtException', cleanup)
+    process.once('exit', this.cleanupListener)
+    process.once('SIGINT', this.cleanupListener)
+    process.once('SIGTERM', this.cleanupListener)
+    process.once('uncaughtException', this.cleanupListener)
   }
 
   async recordMetric(metric: Partial<PerformanceMetric>): Promise<void> {
@@ -403,14 +433,17 @@ export class JMeterPerformanceCollector {
       this.flushTimer = undefined
     }
 
-    // Remove event listeners to prevent memory leaks
-    try {
-      process.removeAllListeners('exit')
-      process.removeAllListeners('SIGINT')
-      process.removeAllListeners('SIGTERM') 
-      process.removeAllListeners('uncaughtException')
-    } catch (error) {
-      // Ignore errors if process cleanup fails
+    // Remove specific event listeners to prevent memory leaks
+    if (this.cleanupListener) {
+      try {
+        process.removeListener('exit', this.cleanupListener)
+        process.removeListener('SIGINT', this.cleanupListener)
+        process.removeListener('SIGTERM', this.cleanupListener)
+        process.removeListener('uncaughtException', this.cleanupListener)
+        this.cleanupListener = undefined
+      } catch (error) {
+        // Ignore errors if process cleanup fails
+      }
     }
 
     await this.flush()
@@ -746,7 +779,7 @@ function escapeJavaScript(unsafe: string): string {
  */
 function safeJsonStringify(data: any): string {
   try {
-    return JSON.stringify(data, (key, value) => {
+    return JSON.stringify(data, (_, value) => {
       if (typeof value === 'string') {
         return escapeJavaScript(value)
       }
@@ -813,6 +846,435 @@ export function createCollector(options: CollectorOptions | LegacyCollectorOptio
  * Legacy function name for v1.0 compatibility
  */
 export const generateReport = generateJMeterReport
+
+/**
+ * Jenkins Summary JSON structure for performance trend tracking
+ */
+interface JenkinsSummaryJson {
+  statistic: {
+    failed: number
+    broken: number
+    skipped: number
+    passed: number
+    unknown: number
+    total: number
+  }
+  time: {
+    start: number
+    stop: number
+    duration: number
+  }
+  performance?: {
+    averageResponseTime: number
+    throughput: number
+    errorRate: number
+    percentiles: {
+      p50: number
+      p90: number
+      p95: number
+      p99: number
+    }
+    apdexScore?: number
+  }
+}
+
+/**
+ * Load previous build comparison data
+ */
+async function loadPreviousBuildData(buildComparisonPath: string): Promise<BuildComparisonData | null> {
+  try {
+    const { promises: fsPromises } = await import('fs')
+    const data = await fsPromises.readFile(buildComparisonPath, 'utf8')
+    return JSON.parse(data) as BuildComparisonData
+  } catch (error) {
+    // Previous build data doesn't exist or is invalid
+    return null
+  }
+}
+
+/**
+ * Save current build data for future comparisons
+ */
+async function saveBuildComparisonData(
+  buildComparisonPath: string,
+  endpointStats: EndpointStats[],
+  summary: ReportResult['summary'],
+  previousBuildData?: BuildComparisonData | null
+): Promise<void> {
+  try {
+    const { promises: fsPromises } = await import('fs')
+    const path = await import('path')
+    
+    // Ensure directory exists
+    const dir = path.dirname(buildComparisonPath)
+    await fsPromises.mkdir(dir, { recursive: true })
+    
+    // Generate build number based on previous build or environment
+    let buildNumber = process.env.BUILD_NUMBER || process.env.GITHUB_RUN_NUMBER
+    if (!buildNumber) {
+      // Use previous build data to increment build number
+      if (previousBuildData && previousBuildData.buildNumber) {
+        const prevBuildNum = typeof previousBuildData.buildNumber === 'string' ? 
+          parseInt(previousBuildData.buildNumber) : previousBuildData.buildNumber
+        buildNumber = String((prevBuildNum || 0) + 1)
+      } else {
+        buildNumber = '1'
+      }
+    }
+
+    const buildData: BuildComparisonData = {
+      buildNumber,
+      timestamp: Date.now(),
+      endpoints: {},
+      summary: {
+        totalRequests: summary.totalRequests,
+        averageResponseTime: summary.averageResponseTime || 0,
+        errorRate: summary.errorRate,
+        throughput: summary.throughput
+      }
+    }
+    
+    // Store endpoint data for comparison
+    endpointStats.forEach(stat => {
+      buildData.endpoints[stat.label] = {
+        average: stat.average,
+        samples: stat.samples,
+        errorRate: stat.errorRate,
+        throughput: stat.throughput
+      }
+    })
+    
+    await fsPromises.writeFile(buildComparisonPath, JSON.stringify(buildData, null, 2), 'utf8')
+    console.log(`💾 Saved build comparison data to: ${buildComparisonPath}`)
+  } catch (error) {
+    console.warn('⚠️  Failed to save build comparison data:', error)
+  }
+}
+
+/**
+ * Calculate performance deltas and trends
+ */
+function calculatePerformanceDeltas(
+  currentStats: EndpointStats[],
+  previousBuildData: BuildComparisonData | null
+): EndpointStats[] {
+  if (!previousBuildData) {
+    return currentStats
+  }
+  
+  return currentStats.map(stat => {
+    const previousData = previousBuildData.endpoints[stat.label]
+    if (!previousData) {
+      return stat
+    }
+    
+    const averageDelta = stat.average - previousData.average
+    const deltaThreshold = previousData.average * 0.05 // 5% threshold for "stable"
+    
+    let performanceTrend: 'improved' | 'degraded' | 'stable'
+    if (Math.abs(averageDelta) <= deltaThreshold) {
+      performanceTrend = 'stable'
+    } else if (averageDelta < 0) {
+      performanceTrend = 'improved'
+    } else {
+      performanceTrend = 'degraded'
+    }
+    
+    return {
+      ...stat,
+      previousAverage: previousData.average,
+      averageDelta: averageDelta,
+      performanceTrend: performanceTrend
+    }
+  })
+}
+
+
+// Removed unused getEndpointInsights function
+
+/**
+ * Generate JUnit XML for Jenkins test results integration
+ */
+function generateJUnitXml(
+  endpointStats: EndpointStats[],
+  summary: ReportResult['summary'],
+  options: ReportOptions
+): string {
+  const thresholds = {
+    warningThreshold: options.performanceThresholds?.warningThreshold || 300, // 300ms
+    errorThreshold: options.performanceThresholds?.errorThreshold || 1000, // 1000ms
+    errorRateThreshold: options.performanceThresholds?.errorRateThreshold || 0.05 // 5%
+  }
+  
+  let totalTests = 0
+  let totalFailures = 0
+  let totalTime = 0
+  
+  const testsuites: string[] = []
+  
+  // Group endpoints by HTTP method for better organization
+  const endpointsByMethod = new Map<string, EndpointStats[]>()
+  endpointStats.forEach(stat => {
+    const method = stat.label.split(' ')[0] || 'UNKNOWN'
+    if (!endpointsByMethod.has(method)) {
+      endpointsByMethod.set(method, [])
+    }
+    endpointsByMethod.get(method)!.push(stat)
+  })
+  
+  for (const [method, endpoints] of endpointsByMethod) {
+    const suiteTests = endpoints.length
+    let suiteFailures = 0
+    let suiteTime = 0
+    const testcases: string[] = []
+    
+    endpoints.forEach(stat => {
+      const endpointPath = stat.label.replace(`${method} `, '')
+      const avgTimeSeconds = stat.average / 1000
+      suiteTime += avgTimeSeconds
+      totalTime += avgTimeSeconds
+      
+      let hasFailure = false
+      let failureMessage = ''
+      let failureDetails = ''
+      
+      // Check performance thresholds
+      if (stat.average > thresholds.errorThreshold) {
+        hasFailure = true
+        failureMessage = `Average response time (${stat.average.toFixed(0)}ms) exceeded error threshold of ${thresholds.errorThreshold}ms.`
+        failureDetails = `
+          Endpoint: ${endpointPath}
+          Metric: Average Response Time
+          Value: ${stat.average.toFixed(0)}ms
+          Threshold: ${thresholds.errorThreshold}ms
+          Error Rate: ${(stat.errorRate * 100).toFixed(1)}%
+          Samples: ${stat.samples}
+        `
+      } else if (stat.errorRate > thresholds.errorRateThreshold) {
+        hasFailure = true
+        failureMessage = `Error rate (${(stat.errorRate * 100).toFixed(1)}%) exceeded threshold of ${(thresholds.errorRateThreshold * 100).toFixed(1)}%.`
+        failureDetails = `
+          Endpoint: ${endpointPath}
+          Metric: Error Rate
+          Value: ${(stat.errorRate * 100).toFixed(1)}%
+          Threshold: ${(thresholds.errorRateThreshold * 100).toFixed(1)}%
+          Average Response Time: ${stat.average.toFixed(0)}ms
+          Samples: ${stat.samples}
+        `
+      } else if (stat.average > thresholds.warningThreshold) {
+        hasFailure = true
+        failureMessage = `Average response time (${stat.average.toFixed(0)}ms) exceeded warning threshold of ${thresholds.warningThreshold}ms.`
+        failureDetails = `
+          Endpoint: ${endpointPath}
+          Metric: Average Response Time
+          Value: ${stat.average.toFixed(0)}ms
+          Threshold: ${thresholds.warningThreshold}ms
+          Error Rate: ${(stat.errorRate * 100).toFixed(1)}%
+          Samples: ${stat.samples}
+        `
+      }
+      
+      if (hasFailure) {
+        suiteFailures++
+        totalFailures++
+      }
+      
+      const testcase = `
+    <testcase classname="${escapeXml(method)}" name="${escapeXml(endpointPath)}" time="${avgTimeSeconds.toFixed(3)}">
+      ${hasFailure ? `<failure message="${escapeXml(failureMessage)}" type="PerformanceWarning">
+        <![CDATA[${failureDetails.trim()}]]>
+      </failure>` : `<!-- Healthy endpoint: ${stat.average.toFixed(0)}ms average, ${(stat.errorRate * 100).toFixed(1)}% error rate -->`}
+    </testcase>`
+      
+      testcases.push(testcase)
+    })
+    
+    totalTests += suiteTests
+    
+    const testsuite = `
+  <testsuite name="${escapeXml(method)} Endpoints" tests="${suiteTests}" failures="${suiteFailures}" timestamp="${new Date().toISOString()}" time="${suiteTime.toFixed(3)}">
+    ${testcases.join('')}
+  </testsuite>`
+    
+    testsuites.push(testsuite)
+  }
+  
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="Performance Tests" tests="${totalTests}" failures="${totalFailures}" time="${totalTime.toFixed(3)}">
+  ${testsuites.join('')}
+</testsuites>`
+}
+
+/**
+ * Escape XML special characters
+ */
+function escapeXml(unsafe: string): string {
+  if (!unsafe || typeof unsafe !== 'string') {
+    return ''
+  }
+  
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+    // Remove control characters that are invalid in XML
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+}
+
+/**
+ * Generate Jenkins dashboard performance badge HTML
+ */
+function generateJenkinsPerformanceBadge(
+  summary: ReportResult['summary'],
+  previousBuildData: BuildComparisonData | null
+): string {
+  const avgResponseTime = summary.averageResponseTime || 0
+  const errorRate = (summary.errorRate || 0) * 100
+  
+  // Determine overall status
+  let statusText = 'Healthy'
+  let statusColor = '#10b981'
+  
+  if (avgResponseTime > 1000 || errorRate > 10) {
+    statusText = 'Critical'
+    statusColor = '#ef4444'
+  } else if (avgResponseTime > 500 || errorRate > 5) {
+    statusText = 'Warning'
+    statusColor = '#f59e0b'
+  }
+  
+  // Calculate trend vs previous build
+  let trendIndicator = ''
+  if (previousBuildData && previousBuildData.summary) {
+    const prevAvg = previousBuildData.summary.averageResponseTime || 0
+    const diff = avgResponseTime - prevAvg
+    const percentChange = prevAvg > 0 ? ((diff / prevAvg) * 100) : 0
+    
+    if (Math.abs(percentChange) > 5) {
+      if (diff < 0) {
+        trendIndicator = `<span style="color: #10b981;">↓ ${Math.abs(diff).toFixed(0)}ms faster</span>`
+      } else {
+        trendIndicator = `<span style="color: #ef4444;">↑ ${diff.toFixed(0)}ms slower</span>`
+      }
+    } else {
+      trendIndicator = `<span style="color: #6b7280;">→ stable</span>`
+    }
+  }
+  
+  return `
+<div style="background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 10px 0; font-family: system-ui, -apple-system, sans-serif;">
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+    <h3 style="margin: 0; color: #1f2937; font-size: 16px;">API Performance</h3>
+    <div style="background: ${statusColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">
+      ${statusText}
+    </div>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 8px;">
+    <div style="text-align: center;">
+      <div style="color: #6b7280; font-size: 12px;">Avg Response</div>
+      <div style="font-size: 20px; font-weight: 600; color: #1f2937;">${avgResponseTime.toFixed(0)}ms</div>
+    </div>
+    <div style="text-align: center;">
+      <div style="color: #6b7280; font-size: 12px;">Error Rate</div>
+      <div style="font-size: 20px; font-weight: 600; color: #1f2937;">${errorRate.toFixed(1)}%</div>
+    </div>
+    <div style="text-align: center;">
+      <div style="color: #6b7280; font-size: 12px;">Requests</div>
+      <div style="font-size: 20px; font-weight: 600; color: #1f2937;">${summary.totalRequests}</div>
+    </div>
+  </div>
+  ${trendIndicator ? `<div style="text-align: center; font-size: 14px; margin-top: 8px;">${trendIndicator}</div>` : ''}
+</div>`
+}
+
+/**
+ * Generate Jenkins trend chart data for Performance Plugin
+ */
+function generateJenkinsTrendData(
+  summary: ReportResult['summary'],
+  previousBuildData: BuildComparisonData | null,
+  buildNumber: string
+): any {
+  const currentData = {
+    buildNumber: parseInt(buildNumber) || 1,
+    timestamp: Date.now(),
+    averageResponseTime: summary.averageResponseTime || 0,
+    errorRate: (summary.errorRate || 0) * 100,
+    throughput: summary.throughput || 0,
+    totalRequests: summary.totalRequests || 0
+  }
+  
+  let trendData = [currentData]
+  
+  // Add previous build data if available
+  if (previousBuildData && previousBuildData.summary) {
+    const prevBuildNum = parseInt(previousBuildData.buildNumber || '1') || (currentData.buildNumber - 1)
+    trendData.unshift({
+      buildNumber: prevBuildNum,
+      timestamp: previousBuildData.timestamp || (Date.now() - 86400000), // 1 day ago fallback
+      averageResponseTime: previousBuildData.summary.averageResponseTime || 0,
+      errorRate: (previousBuildData.summary.errorRate || 0) * 100,
+      throughput: previousBuildData.summary.throughput || 0,
+      totalRequests: previousBuildData.summary.totalRequests || 0
+    })
+  }
+  
+  return {
+    builds: trendData,
+    latest: currentData
+  }
+}
+
+/**
+ * Generate Jenkins-compatible summary.json for build trend tracking
+ */
+function generateJenkinsSummaryJson(
+  summary: ReportResult['summary'],
+  allRecords: JMeterRecord[],
+  testDuration: number
+): JenkinsSummaryJson {
+  const startTime = Math.min(...allRecords.map(r => r.timestamp))
+  const endTime = Math.max(...allRecords.map(r => r.timestamp))
+  
+  const errorCount = allRecords.filter(r => !r.success).length
+  const successCount = allRecords.filter(r => r.success).length
+  
+  const jenkinsSummary: JenkinsSummaryJson = {
+    statistic: {
+      failed: errorCount,
+      broken: 0, // For API tests, we typically don't have "broken" status
+      skipped: 0, // For API tests, we typically don't have "skipped" status
+      passed: successCount,
+      unknown: 0,
+      total: allRecords.length
+    },
+    time: {
+      start: startTime,
+      stop: endTime,
+      duration: Math.round(testDuration * 1000) // Convert to milliseconds
+    }
+  }
+  
+  // Add performance data for Jenkins Performance Plugin compatibility
+  if (summary.averageResponseTime !== undefined) {
+    jenkinsSummary.performance = {
+      averageResponseTime: summary.averageResponseTime,
+      throughput: summary.throughput,
+      errorRate: summary.errorRate,
+      percentiles: summary.percentiles || {
+        p50: 0,
+        p90: 0,
+        p95: 0,
+        p99: 0
+      },
+      apdexScore: summary.apdexScore
+    }
+  }
+  
+  return jenkinsSummary
+}
 
 /**
  * Enhanced memory-safe streaming report generation
@@ -968,6 +1430,14 @@ export async function generateJMeterReport(options: ReportOptions): Promise<Repo
     endpointData.get(record.label)!.push(record)
   })
 
+  // Load previous build data for comparison if enabled
+  let previousBuildData: BuildComparisonData | null = null
+  if (options.compareToPrevious !== false) {
+    const buildComparisonPath = options.buildComparisonPath || 
+      path.join(outputDir, '.build-comparison.json')
+    previousBuildData = await loadPreviousBuildData(buildComparisonPath)
+  }
+
   // Calculate statistics for each endpoint
   const endpointStats: EndpointStats[] = []
   const apdexData: ApdexData[] = []
@@ -1006,6 +1476,9 @@ export async function generateJMeterReport(options: ReportOptions): Promise<Repo
 
     endpointStats.push(stats)
   }
+
+  // Apply performance deltas if previous build data exists
+  const endpointStatsWithDeltas = calculatePerformanceDeltas(endpointStats, previousBuildData)
 
   // Calculate time series data for charts
   const timeInterval = Math.max(Math.floor(testDuration / 100), 1) * 1000 // milliseconds
@@ -1075,12 +1548,12 @@ export async function generateJMeterReport(options: ReportOptions): Promise<Repo
     summary.apdexScore = overallApdex.score
   }
 
-  // Generate the HTML report
+  // Generate the HTML report with build comparison data
   const htmlContent = generateEnhancedHTMLReport({
     title: options.title || 'JMeter Performance Dashboard',
     theme: options.theme || 'light',
     summary,
-    endpointStats,
+    endpointStats: endpointStatsWithDeltas, // Use stats with build comparison deltas
     timeSeriesData,
     errorSummary,
     apdexData,
@@ -1089,11 +1562,62 @@ export async function generateJMeterReport(options: ReportOptions): Promise<Repo
     endpointData,
     includeDrillDown: options.includeDrillDown !== false,
     jenkinsCompatible: options.jenkinsCompatible,
-    embeddedCharts: options.embeddedCharts
+    embeddedCharts: options.embeddedCharts,
+    compareToPrevious: options.compareToPrevious !== false && previousBuildData !== null
   })
 
   const reportPath = path.join(outputDir, 'index.html')
   await fsPromises.writeFile(reportPath, htmlContent, 'utf8')
+
+  // Generate Jenkins-compatible summary.json for build trend tracking
+  let summaryJsonPath: string | undefined
+  if (options.jenkinsCompatible !== false) {
+    const jenkinsSummary = generateJenkinsSummaryJson(summary, allRecords, testDuration)
+    
+    // Create allure-report/widgets directory structure for Jenkins compatibility
+    const allureWidgetsDir = path.join(outputDir, 'allure-report', 'widgets')
+    await fsPromises.mkdir(allureWidgetsDir, { recursive: true })
+    
+    summaryJsonPath = path.join(allureWidgetsDir, 'summary.json')
+    await fsPromises.writeFile(summaryJsonPath, JSON.stringify(jenkinsSummary, null, 2), 'utf8')
+    
+    // Generate Jenkins dashboard performance badge for build page display
+    const buildNumber = process.env.BUILD_NUMBER || process.env.GITHUB_RUN_NUMBER || '1'
+    const performanceBadge = generateJenkinsPerformanceBadge(summary, previousBuildData)
+    const badgePath = path.join(outputDir, 'jenkins-performance-badge.html')
+    await fsPromises.writeFile(badgePath, performanceBadge, 'utf8')
+    
+    // Generate Jenkins trend data for Performance Plugin
+    const trendData = generateJenkinsTrendData(summary, previousBuildData, buildNumber)
+    const trendPath = path.join(allureWidgetsDir, 'trend.json')
+    await fsPromises.writeFile(trendPath, JSON.stringify(trendData, null, 2), 'utf8')
+    
+    console.log(`📊 Generated Jenkins summary.json at: ${summaryJsonPath}`)
+    console.log(`🎯 Generated Jenkins dashboard badge at: ${badgePath}`)
+    console.log(`📈 Performance metrics: ${summary.totalRequests} requests, ${(summary.errorRate * 100).toFixed(2)}% error rate, ${summary.averageResponseTime?.toFixed(0)}ms avg response time`)
+  }
+
+  // Generate JUnit XML for Jenkins test results integration
+  if (options.generateXml !== false) {
+    const xmlContent = generateJUnitXml(endpointStatsWithDeltas, summary, options)
+    const xmlPath = path.join(outputDir, 'performance-results.xml')
+    await fsPromises.writeFile(xmlPath, xmlContent, 'utf8')
+    
+    const thresholds = options.performanceThresholds || {}
+    const warningThreshold = thresholds.warningThreshold || 300
+    const errorThreshold = thresholds.errorThreshold || 1000
+    const errorRateThreshold = thresholds.errorRateThreshold || 0.05
+    
+    console.log(`📄 Generated JUnit XML at: ${xmlPath}`)
+    console.log(`⚙️  Performance thresholds: Warning: ${warningThreshold}ms, Error: ${errorThreshold}ms, Error Rate: ${(errorRateThreshold * 100)}%`)
+  }
+
+  // Save current build data for future comparisons
+  if (options.compareToPrevious !== false) {
+    // Always save to output directory, regardless of where we read from
+    const saveComparisonPath = path.join(outputDir, '.build-comparison.json')
+    await saveBuildComparisonData(saveComparisonPath, endpointStatsWithDeltas, summary, previousBuildData)
+  }
 
   const processingEndTime = performance.now()
   const memoryUsage = process.memoryUsage()
@@ -1108,7 +1632,8 @@ export async function generateJMeterReport(options: ReportOptions): Promise<Repo
       processingTimeMs: Math.round(processingEndTime - processingStartTime),
       recordsProcessed,
       recordsSkipped
-    }
+    },
+    summaryJsonPath
   }
 }
 
@@ -1126,6 +1651,7 @@ interface HTMLReportData {
   includeDrillDown: boolean
   jenkinsCompatible?: boolean
   embeddedCharts?: boolean
+  compareToPrevious?: boolean
 }
 
 /**
@@ -1240,6 +1766,56 @@ function generateEnhancedHTMLReport(data: HTMLReportData): string {
         .warning { color: #f59e0b; }
         .error { color: #ef4444; }
         .info { color: #3b82f6; }
+        
+        ${data.compareToPrevious ? `
+        .trend-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .trend-indicator.improved {
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+        }
+        
+        .trend-indicator.degraded {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+        }
+        
+        .trend-indicator.stable {
+            background: rgba(107, 114, 128, 0.1);
+            color: #6b7280;
+        }
+        ` : ''}
+        
+        .text-muted {
+            color: #9ca3af;
+        }
+        
+        /* Drill-down table improvements */
+        .drill-down-table {
+            table-layout: fixed;
+            width: 100%;
+        }
+        
+        .drill-down-table th,
+        .drill-down-table td {
+            padding: 8px 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .drill-down-table td:first-child {
+            white-space: normal;
+            word-break: break-word;
+        }
         
         .panel {
             background: ${cardBg};
@@ -1508,6 +2084,7 @@ function generateEnhancedHTMLReport(data: HTMLReportData): string {
                                     <th>Endpoint</th>
                                     <th class="text-right">Samples</th>
                                     <th class="text-right">Average</th>
+                                    ${data.compareToPrevious ? '<th class="text-right">Trend</th>' : ''}
                                     <th class="text-right">Median</th>
                                     <th class="text-right">90%</th>
                                     <th class="text-right">95%</th>
@@ -1524,6 +2101,16 @@ function generateEnhancedHTMLReport(data: HTMLReportData): string {
                                     <td>${data.includeDrillDown ? `<a class="drill-down-link" onclick="showDrillDown('${escapeJavaScript(stat.label)}')">${escapeHtml(stat.label)}</a>` : escapeHtml(stat.label)}</td>
                                     <td class="text-right">${stat.samples.toLocaleString()}</td>
                                     <td class="text-right">${stat.average.toFixed(0)}ms</td>
+                                    ${data.compareToPrevious ? `
+                                    <td class="text-right">
+                                        ${stat.averageDelta !== undefined ? `
+                                            <span class="trend-indicator ${stat.performanceTrend}" title="vs previous: ${stat.averageDelta > 0 ? '+' : ''}${stat.averageDelta.toFixed(0)}ms">
+                                                ${stat.performanceTrend === 'improved' ? '↓' : stat.performanceTrend === 'degraded' ? '↑' : '→'}
+                                                ${stat.averageDelta > 0 ? '+' : ''}${stat.averageDelta.toFixed(0)}ms
+                                            </span>
+                                        ` : '<span class="text-muted">-</span>'}
+                                    </td>
+                                    ` : ''}
                                     <td class="text-right">${stat.median.toFixed(0)}ms</td>
                                     <td class="text-right">${stat.p90.toFixed(0)}ms</td>
                                     <td class="text-right">${stat.p95.toFixed(0)}ms</td>
@@ -1860,13 +2447,13 @@ function generateEnhancedHTMLReport(data: HTMLReportData): string {
                     </div>
                     <div class="panel-body">
                         <div class="table-responsive">
-                            <table>
+                            <table class="drill-down-table">
                                 <thead>
                                     <tr>
-                                        <th>Timestamp</th>
-                                        <th>Response Time</th>
-                                        <th>Status</th>
-                                        <th>Bytes</th>
+                                        <th style="width: 40%;">Timestamp</th>
+                                        <th class="text-right" style="width: 20%;">Response Time</th>
+                                        <th class="text-center" style="width: 20%;">Status</th>
+                                        <th class="text-right" style="width: 20%;">Bytes</th>
                                     </tr>
                                 </thead>
                                 <tbody>
