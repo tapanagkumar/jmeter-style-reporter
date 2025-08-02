@@ -53,8 +53,8 @@ Options:
         process.exit(1)
       }
 
-      const outputIndex = args.indexOf('--output') || args.indexOf('-o')
-      const titleIndex = args.indexOf('--title') || args.indexOf('-t')
+      const outputIndex = args.indexOf('--output') !== -1 ? args.indexOf('--output') : args.indexOf('-o')
+      const titleIndex = args.indexOf('--title') !== -1 ? args.indexOf('--title') : args.indexOf('-t')
       const themeIndex = args.indexOf('--theme')
       const jenkinsFlag = args.includes('--jenkins')
       const embeddedChartsFlag = args.includes('--embedded-charts')

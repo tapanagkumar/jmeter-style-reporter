@@ -45,19 +45,19 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     },
     "./collection": {
+      "types": "./dist/collection/index.d.ts",
       "import": "./dist/collection/index.mjs",
-      "require": "./dist/collection/index.js",
-      "types": "./dist/collection/index.d.ts"
+      "require": "./dist/collection/index.js"
     },
     "./reporting": {
+      "types": "./dist/reporting/index.d.ts",
       "import": "./dist/reporting/index.mjs",
-      "require": "./dist/reporting/index.js",
-      "types": "./dist/reporting/index.d.ts"
+      "require": "./dist/reporting/index.js"
     }
   },
   "bin": {
@@ -110,7 +110,7 @@
     "html-escaper": "^3.0.3"
   },
   "devDependencies": {
-    "@size-limit/preset-small-lib": "^8.2.4",
+    "@size-limit/preset-small-lib": "^11.2.0",
     "@types/ejs": "^3.1.5",
     "@types/fs-extra": "^11.0.4",
     "@types/jest": "^29.5.12",
