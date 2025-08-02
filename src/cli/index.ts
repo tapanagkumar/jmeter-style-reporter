@@ -55,11 +55,15 @@ Options:
       const titleIndex = args.indexOf('--title') || args.indexOf('-t')
       const themeIndex = args.indexOf('--theme')
 
+      const themeValue = themeIndex > -1 ? args[themeIndex + 1] : 'auto'
+      const validThemes: Array<'light' | 'dark' | 'auto'> = ['light', 'dark', 'auto']
+      const theme = validThemes.find(t => t === themeValue) || 'auto'
+      
       const options = {
         csv: csvFile,
         output: outputIndex > -1 ? args[outputIndex + 1] : './jmeter-report',
         title: titleIndex > -1 ? args[titleIndex + 1] : 'Performance Report',
-        theme: themeIndex > -1 ? args[themeIndex + 1] as 'light' | 'dark' | 'auto' : 'auto' as const
+        theme: theme
       }
 
       console.log('🚀 Generating performance report...')
@@ -123,7 +127,7 @@ Options:
     }
 
   } catch (error) {
-    console.error('❌ Error:', error.message)
+    console.error('❌ Error:', error instanceof Error ? error.message : String(error))
     process.exit(1)
   }
 }
