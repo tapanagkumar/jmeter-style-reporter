@@ -1,0 +1,141 @@
+{
+  "name": "jmeter-style-reporter",
+  "version": "1.0.0",
+  "description": "Unified performance testing and reporting system with JMeter-style HTML reports and high-performance data collection",
+  "keywords": [
+    "jmeter",
+    "performance",
+    "testing",
+    "reporting",
+    "csv",
+    "html",
+    "charts",
+    "jenkins",
+    "ci-cd",
+    "load-testing",
+    "monitoring",
+    "express",
+    "axios",
+    "jest",
+    "middleware",
+    "interceptor"
+  ],
+  "homepage": "https://github.com/tapanagkumar/jmeter-style-reporter#readme",
+  "bugs": {
+    "url": "https://github.com/tapanagkumar/jmeter-style-reporter/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tapanagkumar/jmeter-style-reporter.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Gowri Kumaran Napantula",
+    "email": "torte.septets-0c@icloud.com"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./collection": {
+      "import": "./dist/collection/index.mjs",
+      "require": "./dist/collection/index.js",
+      "types": "./dist/collection/index.d.ts"
+    },
+    "./reporting": {
+      "import": "./dist/reporting/index.mjs",
+      "require": "./dist/reporting/index.js",
+      "types": "./dist/reporting/index.d.ts"
+    }
+  },
+  "bin": {
+    "jmeter-style-reporter": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "API.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "npm run clean && tsup",
+    "build:check": "npm run build && npm run test:dist",
+    "dev": "tsup --watch",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:dist": "node dist/cli/index.js --help && node -e \"require('./dist/index.js')\"",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "format": "prettier --write \"src/**/*.{ts,js,json}\"",
+    "typecheck": "tsc --noEmit",
+    "size": "size-limit",
+    "prepublishOnly": "npm run build:check",
+    "prepack": "npm run build",
+    "postpack": "npm run clean",
+    "version": "npm run build && git add -A dist",
+    "postversion": "git push && git push --tags"
+  },
+  "dependencies": {
+    "axios": "^1.11.0",
+    "commander": "^12.1.0",
+    "d3-array": "^3.2.4",
+    "ejs": "^3.1.10",
+    "express": "^5.1.0",
+    "fast-csv": "^5.0.1",
+    "fs-extra": "^11.2.0",
+    "html-escaper": "^3.0.3"
+  },
+  "devDependencies": {
+    "@size-limit/preset-small-lib": "^8.2.4",
+    "@types/ejs": "^3.1.5",
+    "@types/fs-extra": "^11.0.4",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.10",
+    "@typescript-eslint/eslint-plugin": "^7.16.1",
+    "@typescript-eslint/parser": "^7.16.1",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "jest-junit": "^16.0.0",
+    "prettier": "^3.0.0",
+    "rimraf": "^5.0.1",
+    "size-limit": "^8.2.4",
+    "ts-jest": "^29.2.2",
+    "tsup": "^8.2.2",
+    "typescript": "^5.5.3"
+  },
+  "size-limit": [
+    {
+      "path": "dist/index.js",
+      "limit": "500 KB"
+    },
+    {
+      "path": "dist/collection/index.js",
+      "limit": "200 KB"
+    },
+    {
+      "path": "dist/reporting/index.js",
+      "limit": "400 KB"
+    },
+    {
+      "path": "dist/cli.js",
+      "limit": "600 KB"
+    }
+  ]
+}

@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Performance Report</title>
+    <style>
+        /* JMeter Dashboard CSS - Bootstrap-based */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f8f9fa;
+            color: #2d3748;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+        }
+        
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 300;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.8;
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .summary-card {
+            background: #ffffff;
+            padding: 15px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            text-align: center;
+        }
+        
+        .summary-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        
+        .summary-label {
+            font-size: 0.95rem;
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .success { color: #38a169; }
+        .warning { color: #d69e2e; }
+        .error { color: #e53e3e; }
+        .info { color: #3182ce; }
+        
+        .panel {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .panel-heading {
+            padding: 10px 15px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f7fafc;
+            border-radius: 4px 4px 0 0;
+        }
+        
+        .panel-title {
+            font-size: 16px;
+            font-weight: 500;
+            margin: 0;
+            color: #333;
+        }
+        
+        .panel-body {
+            padding: 15px;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin: 15px 0;
+            border: 1px solid #e2e8f0;
+            background: white;
+        }
+        
+        .table-responsive {
+            overflow-x: auto;
+        }
+        
+        .stats-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        
+        .stats-table th,
+        .stats-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .stats-table th {
+            background: #f7fafc;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 0.5px;
+        }
+        
+        .stats-table tr:hover {
+            background: #f7fafc;
+        }
+        
+        .clickable-endpoint {
+            cursor: pointer;
+            color: #3182ce;
+            text-decoration: underline;
+            font-weight: bold;
+        }
+        
+        .clickable-endpoint:hover {
+            color: #2c5aa0;
+        }
+        
+        .number {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+        }
+        
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.6);
+            animation: fadeIn 0.3s;
+        }
+        
+        .modal-content {
+            background-color: #ffffff;
+            margin: 5% auto;
+            padding: 0;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 1200px;
+            max-height: 80vh;
+            overflow-y: auto;
+            animation: slideIn 0.3s;
+        }
+        
+        .modal-header {
+            padding: 20px 25px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f7fafc;
+            border-radius: 12px 12px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+        }
+        
+        .close:hover,
+        .close:focus {
+            color: #333;
+        }
+        
+        .tab-container {
+            display: flex;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .tab {
+            padding: 15px 25px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            color: #2d3748;
+            font-size: 0.9rem;
+            font-weight: 500;
+            border-bottom: 3px solid transparent;
+        }
+        
+        .tab.active {
+            border-bottom-color: #3182ce;
+            color: #3182ce;
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 25px;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        @keyframes fadeIn {
+            from {opacity: 0;}
+            to {opacity: 1;}
+        }
+        
+        @keyframes slideIn {
+            from {transform: translateY(-50px); opacity: 0;}
+            to {transform: translateY(0); opacity: 1;}
+        }
+        
+        @media (max-width: 768px) {
+            .grid-2, .grid-3 {
+                grid-template-columns: 1fr;
+            }
+            
+            .container {
+                padding: 15px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .modal-content {
+                width: 95%;
+                margin: 10px auto;
+            }
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 50px;
+            padding: 20px;
+            opacity: 0.6;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Performance Report</h1>
+            <p>📊 Comprehensive Performance Analysis Dashboard</p>
+            <p>Test Duration: 29.4 minutes | Generated on 8/2/2025, 1:18:10 PM</p>
+        </div>
+        
+        <div class="summary-grid">
+            <div class="summary-card">
+                <div class="summary-value info number">15</div>
+                <div class="summary-label">Total Requests</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-value success number">
+                    179ms
+                </div>
+                <div class="summary-label">Average Response Time</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-value error number">
+                    20.00%
+                </div>
+                <div class="summary-label">Error Rate</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-value info number">0.0</div>
+                <div class="summary-label">Requests/Second</div>
+            </div>
+        </div>
+        
+        <div class="grid-2">
+            <div class="panel">
+                <div class="panel-heading">
+                    <h3 class="panel-title">📈 Response Times Over Time</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="chart-container">
+                        <canvas id="responseTimeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <div class="panel-heading">
+                    <h3 class="panel-title">⚡ Throughput Over Time</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="chart-container">
+                        <canvas id="throughputChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="grid-2">
+            <div class="panel">
+                <div class="panel-heading">
+                    <h3 class="panel-title">🥧 Request Summary</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="chart-container">
+                        <canvas id="successChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <div class="panel-heading">
+                    <h3 class="panel-title">📊 Response Time Percentiles</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="chart-container">
+                        <canvas id="percentilesChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <div class="panel-heading">
+                <h3 class="panel-title">📋 Statistics Table</h3>
+            </div>
+            <div class="panel-body">
+                <div class="table-responsive">
+                    <table class="stats-table">
+                        <thead>
+                            <tr>
+                                <th>Label</th>
+                                <th>Samples</th>
+                                <th>Average</th>
+                                <th>Median</th>
+                                <th>90th %ile</th>
+                                <th>95th %ile</th>
+                                <th>99th %ile</th>
+                                <th>Min</th>
+                                <th>Max</th>
+                                <th>Error %</th>
+                                <th>Throughput</th>
+                                <th>Received KB/sec</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                                <tr>
+                                    <td><span class="clickable-endpoint" onclick="showEndpointDetails('/users')">/users</span></td>
+                                    <td class="number">3</td>
+                                    <td class="number">74ms</td>
+                                    <td class="number">67ms</td>
+                                    <td class="number">93ms</td>
+                                    <td class="number">93ms</td>
+                                    <td class="number">93ms</td>
+                                    <td class="number">63ms</td>
+                                    <td class="number">93ms</td>
+                                    <td class="number success">
+                                        0.00%
+                                    </td>
+                                    <td class="number">0.00/sec</td>
+                                    <td class="number">0.00</td>
+                                </tr>
+                            
+                                <tr>
+                                    <td><span class="clickable-endpoint" onclick="showEndpointDetails('/posts')">/posts</span></td>
+                                    <td class="number">6</td>
+                                    <td class="number">399ms</td>
+                                    <td class="number">255ms</td>
+                                    <td class="number">730ms</td>
+                                    <td class="number">730ms</td>
+                                    <td class="number">730ms</td>
+                                    <td class="number">23ms</td>
+                                    <td class="number">730ms</td>
+                                    <td class="number success">
+                                        0.00%
+                                    </td>
+                                    <td class="number">0.00/sec</td>
+                                    <td class="number">0.00</td>
+                                </tr>
+                            
+                                <tr>
+                                    <td><span class="clickable-endpoint" onclick="showEndpointDetails('/users/1')">/users/1</span></td>
+                                    <td class="number">3</td>
+                                    <td class="number">21ms</td>
+                                    <td class="number">19ms</td>
+                                    <td class="number">28ms</td>
+                                    <td class="number">28ms</td>
+                                    <td class="number">28ms</td>
+                                    <td class="number">16ms</td>
+                                    <td class="number">28ms</td>
+                                    <td class="number success">
+                                        0.00%
+                                    </td>
+                                    <td class="number">0.00/sec</td>
+                                    <td class="number">0.00</td>
+                                </tr>
+                            
+                                <tr>
+                                    <td><span class="clickable-endpoint" onclick="showEndpointDetails('/nonexistent')">/nonexistent</span></td>
+                                    <td class="number">3</td>
+                                    <td class="number">0ms</td>
+                                    <td class="number">0ms</td>
+                                    <td class="number">0ms</td>
+                                    <td class="number">0ms</td>
+                                    <td class="number">0ms</td>
+                                    <td class="number">0ms</td>
+                                    <td class="number">0ms</td>
+                                    <td class="number error">
+                                        100.00%
+                                    </td>
+                                    <td class="number">0.00/sec</td>
+                                    <td class="number">0.00</td>
+                                </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        
+        <div class="panel">
+            <div class="panel-heading">
+                <h3 class="panel-title">❌ Error Summary</h3>
+            </div>
+            <div class="panel-body">
+                <div class="table-responsive">
+                    <table class="stats-table">
+                        <thead>
+                            <tr>
+                                <th>Response Code</th>
+                                <th>Error Message</th>
+                                <th>Count</th>
+                                <th>Percentage</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                                <tr>
+                                    <td class="number error"><strong>404</strong></td>
+                                    <td>Not Found</td>
+                                    <td class="number">3</td>
+                                    <td class="number">20.00%</td>
+                                </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        
+        <div class="panel">
+            <div class="panel-heading">
+                <h3 class="panel-title">🎯 APDEX Table</h3>
+            </div>
+            <div class="panel-body">
+                <p style="margin-bottom: 20px; opacity: 0.8;">
+                    Application Performance Index (APDEX) - Threshold: 500ms, Tolerance: 2000ms
+                </p>
+                <div class="table-responsive">
+                    <table class="stats-table">
+                        <thead>
+                            <tr>
+                                <th>Label</th>
+                                <th>Samples</th>
+                                <th>APDEX Score</th>
+                                <th>Rating</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                                    <tr>
+                                        <td><span class="clickable-endpoint" onclick="showEndpointDetails('/users')">/users</span></td>
+                                        <td class="number">3</td>
+                                        <td class="number">1.000</td>
+                                        <td class="success"><strong>Excellent</strong></td>
+                                    </tr>
+                                
+                                    <tr>
+                                        <td><span class="clickable-endpoint" onclick="showEndpointDetails('/posts')">/posts</span></td>
+                                        <td class="number">6</td>
+                                        <td class="number">0.750</td>
+                                        <td class="warning"><strong>Fair</strong></td>
+                                    </tr>
+                                
+                                    <tr>
+                                        <td><span class="clickable-endpoint" onclick="showEndpointDetails('/users/1')">/users/1</span></td>
+                                        <td class="number">3</td>
+                                        <td class="number">1.000</td>
+                                        <td class="success"><strong>Excellent</strong></td>
+                                    </tr>
+                                
+                                    <tr>
+                                        <td><span class="clickable-endpoint" onclick="showEndpointDetails('/nonexistent')">/nonexistent</span></td>
+                                        <td class="number">3</td>
+                                        <td class="number">1.000</td>
+                                        <td class="success"><strong>Excellent</strong></td>
+                                    </tr>
+                                
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            Generated by JMeter Style Reporter v2.0 | 2025-08-02T03:18:10.927Z
+        </div>
+    </div>
+
+    <!-- Modal for endpoint details -->
+    <div id="endpointModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Endpoint Details</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="tab-container">
+                <button class="tab active" onclick="showTab('timeline')">📈 Timeline</button>
+                <button class="tab" onclick="showTab('distribution')">📊 Distribution</button>
+                <button class="tab" onclick="showTab('details')">📋 Details</button>
+                <button class="tab" onclick="showTab('raw')">🔍 Raw Data</button>
+            </div>
+            <div id="timeline" class="tab-content active">
+                <div class="chart-container">
+                    <canvas id="endpointTimeChart"></canvas>
+                </div>
+            </div>
+            <div id="distribution" class="tab-content">
+                <div class="chart-container">
+                    <canvas id="endpointDistChart"></canvas>
+                </div>
+            </div>
+            <div id="details" class="tab-content">
+                <div id="endpointStats"></div>
+            </div>
+            <div id="raw" class="tab-content">
+                <div class="table-responsive">
+                    <table class="stats-table" id="rawDataTable">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Response Time (ms)</th>
+                                <th>Status Code</th>
+                                <th>Success</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rawDataBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        
+// JMeter Dashboard Chart Library - Flot.js inspired
+class JMeterChart {
+    static defaults = {
+        color: '#4d4d4d',
+        borderColor: '#ddd', 
+        backgroundColor: '#fff',
+        lineColor: '#0088cc',
+        gridColor: '#e0e0e0'
+    };
+    
+    constructor(ctx, config) {
+        this.ctx = typeof ctx === 'string' ? document.getElementById(ctx) : ctx;
+        this.config = config;
+        this.render();
+    }
+    
+    render() {
+        const canvas = this.ctx;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        
+        // Set canvas size to match container
+        const rect = canvas.parentElement.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = 300;
+        
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // JMeter-style chart rendering
+        if (this.config.type === 'line') {
+            this.renderJMeterLineChart(ctx, canvas.width, canvas.height);
+        } else if (this.config.type === 'bar') {
+            this.renderJMeterBarChart(ctx, canvas.width, canvas.height);
+        } else if (this.config.type === 'pie' || this.config.type === 'doughnut') {
+            this.renderJMeterPieChart(ctx, canvas.width, canvas.height);
+        }
+    }
+    
+    renderJMeterLineChart(ctx, width, height) {
+        const dataset = this.config.data.datasets[0];
+        const data = dataset.data;
+        const labels = this.config.data.labels;
+        const padding = { top: 40, right: 60, bottom: 60, left: 80 };
+        
+        if (!data || data.length === 0) return;
+        
+        const chartWidth = width - padding.left - padding.right;
+        const chartHeight = height - padding.top - padding.bottom;
+        const maxValue = Math.max(...data);
+        const minValue = Math.min(0, Math.min(...data));
+        const valueRange = maxValue - minValue || 1;
+        
+        // JMeter grid background
+        this.drawJMeterGrid(ctx, padding, chartWidth, chartHeight, width, height);
+        
+        // Draw axis labels
+        this.drawAxisLabels(ctx, data, labels, padding, chartWidth, chartHeight, minValue, maxValue);
+        
+        // Draw line with JMeter styling
+        ctx.strokeStyle = dataset.borderColor || JMeterChart.defaults.lineColor;
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        
+        data.forEach((value, index) => {
+            const x = padding.left + (index / (data.length - 1)) * chartWidth;
+            const y = padding.top + chartHeight - ((value - minValue) / valueRange) * chartHeight;
+            
+            if (index === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+        ctx.stroke();
+        
+        // Draw data points
+        ctx.fillStyle = dataset.borderColor || JMeterChart.defaults.lineColor;
+        data.forEach((value, index) => {
+            const x = padding.left + (index / (data.length - 1)) * chartWidth;
+            const y = padding.top + chartHeight - ((value - minValue) / valueRange) * chartHeight;
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+        });
+    }
+    
+    renderJMeterBarChart(ctx, width, height) {
+        const datasets = this.config.data.datasets;
+        const labels = this.config.data.labels;
+        const padding = { top: 40, right: 60, bottom: 80, left: 80 };
+        
+        if (!datasets || datasets.length === 0) return;
+        
+        const chartWidth = width - padding.left - padding.right;
+        const chartHeight = height - padding.top - padding.bottom;
+        const barWidth = (chartWidth / labels.length) * 0.6;
+        const maxValue = Math.max(...datasets.flatMap(d => d.data));
+        
+        // JMeter grid background
+        this.drawJMeterGrid(ctx, padding, chartWidth, chartHeight, width, height);
+        
+        // Draw bars with JMeter colors
+        const colors = ['#0088cc', '#5cb85c', '#f0ad4e', '#d9534f'];
+        datasets.forEach((dataset, datasetIndex) => {
+            const color = dataset.backgroundColor || colors[datasetIndex % colors.length];
+            ctx.fillStyle = color;
+            
+            dataset.data.forEach((value, index) => {
+                const x = padding.left + (index * chartWidth / labels.length) + (chartWidth / labels.length - barWidth) / 2;
+                const barHeight = (value / maxValue) * chartHeight;
+                const y = padding.top + chartHeight - barHeight;
+                
+                // JMeter-style bar with border
+                ctx.fillRect(x, y, barWidth, barHeight);
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(x, y, barWidth, barHeight);
+            });
+        });
+        
+        // Draw labels
+        ctx.fillStyle = JMeterChart.defaults.color;
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        labels.forEach((label, index) => {
+            const x = padding.left + (index * chartWidth / labels.length) + (chartWidth / labels.length) / 2;
+            const y = height - padding.bottom + 20;
+            ctx.fillText(label, x, y);
+        });
+    }
+    
+    renderJMeterPieChart(ctx, width, height) {
+        const data = this.config.data.datasets[0].data;
+        const labels = this.config.data.labels;
+        const colors = this.config.data.datasets[0].backgroundColor || ['#5cb85c', '#d9534f', '#f0ad4e', '#0088cc'];
+        
+        const centerX = width / 2;
+        const centerY = (height - 60) / 2;
+        const radius = Math.min(width, height - 60) / 3;
+        
+        const total = data.reduce((sum, value) => sum + value, 0);
+        let currentAngle = -Math.PI / 2;
+        
+        // Draw pie slices with JMeter styling
+        data.forEach((value, index) => {
+            const sliceAngle = (value / total) * 2 * Math.PI;
+            
+            ctx.fillStyle = colors[index] || '#0088cc';
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.arc(centerX, centerY, radius, currentAngle, currentAngle + sliceAngle);
+            ctx.closePath();
+            ctx.fill();
+            
+            // JMeter-style slice border
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            currentAngle += sliceAngle;
+        });
+        
+        // Draw JMeter-style legend
+        const legendStartY = height - 50;
+        const legendItemWidth = width / labels.length;
+        labels.forEach((label, index) => {
+            const x = index * legendItemWidth + 20;
+            const percentage = ((data[index] / total) * 100).toFixed(1);
+            
+            // Legend color box
+            ctx.fillStyle = colors[index];
+            ctx.fillRect(x, legendStartY, 12, 12);
+            
+            // Legend text
+            ctx.fillStyle = JMeterChart.defaults.color;
+            ctx.font = '11px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(label + ' (' + percentage + '%)', x + 18, legendStartY + 10);
+        });
+    }
+    
+    drawJMeterGrid(ctx, padding, chartWidth, chartHeight, width, height) {
+        // JMeter-style grid background
+        ctx.strokeStyle = JMeterChart.defaults.gridColor;
+        ctx.lineWidth = 1;
+        
+        // Vertical grid lines
+        for (let i = 0; i <= 10; i++) {
+            const x = padding.left + (i / 10) * chartWidth;
+            ctx.beginPath();
+            ctx.moveTo(x, padding.top);
+            ctx.lineTo(x, padding.top + chartHeight);
+            ctx.stroke();
+        }
+        
+        // Horizontal grid lines
+        for (let i = 0; i <= 5; i++) {
+            const y = padding.top + (i / 5) * chartHeight;
+            ctx.beginPath();
+            ctx.moveTo(padding.left, y);
+            ctx.lineTo(padding.left + chartWidth, y);
+            ctx.stroke();
+        }
+        
+        // Chart border
+        ctx.strokeStyle = JMeterChart.defaults.color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(padding.left, padding.top, chartWidth, chartHeight);
+    }
+    
+    drawAxisLabels(ctx, data, labels, padding, chartWidth, chartHeight, minValue, maxValue) {
+        ctx.fillStyle = JMeterChart.defaults.color;
+        ctx.font = '11px Arial';
+        
+        // Y-axis labels
+        ctx.textAlign = 'right';
+        for (let i = 0; i <= 5; i++) {
+            const value = minValue + (maxValue - minValue) * (1 - i / 5);
+            const y = padding.top + (i / 5) * chartHeight;
+            ctx.fillText(Math.round(value), padding.left - 10, y + 4);
+        }
+        
+        // X-axis labels (sample some labels to avoid overcrowding)
+        ctx.textAlign = 'center';
+        const labelStep = Math.max(1, Math.floor(labels.length / 10));
+        labels.forEach((label, index) => {
+            if (index % labelStep === 0) {
+                const x = padding.left + (index / (labels.length - 1)) * chartWidth;
+                const y = padding.top + chartHeight + 20;
+                ctx.fillText(label, x, y);
+            }
+        });
+    }
+    
+    destroy() {
+        if (this.ctx) {
+            const ctx = this.ctx.getContext('2d');
+            ctx.clearRect(0, 0, this.ctx.width, this.ctx.height);
+        }
+    }
+}
+
+// Compatibility alias for Chart.js API
+class Chart extends JMeterChart {
+    static defaults = JMeterChart.defaults;
+}
+
+        
+        // Global data for JavaScript
+        const endpointData = {"/users":[{"timestamp":1754102194620,"elapsed":67,"label":"/users","responseCode":200,"success":true,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Get Users"},{"timestamp":1754102682464,"elapsed":93,"label":"/users","responseCode":200,"success":true,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Get Users"},{"timestamp":1754103952976,"elapsed":63,"label":"/users","responseCode":200,"success":true,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Get Users"}],"/posts":[{"timestamp":1754102195852,"elapsed":730,"label":"/posts","responseCode":200,"success":true,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Get Posts"},{"timestamp":1754102197126,"elapsed":255,"label":"/posts","responseCode":201,"success":true,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Create Post"},{"timestamp":1754102682994,"elapsed":28,"label":"/posts","responseCode":200,"success":true,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Get Posts"},{"timestamp":1754102684691,"elapsed":674,"label":"/posts","responseCode":201,"success":true,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Create Post"},{"timestamp":1754103953501,"elapsed":23,"label":"/posts","responseCode":200,"success":true,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Get Posts"},{"timestamp":1754103955214,"elapsed":682,"label":"/posts","responseCode":201,"success":true,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Create Post"}],"/users/1":[{"timestamp":1754102196368,"elapsed":16,"label":"/users/1","responseCode":200,"success":true,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Get User 1"},{"timestamp":1754102683515,"elapsed":19,"label":"/users/1","responseCode":200,"success":true,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Get User 1"},{"timestamp":1754103954030,"elapsed":28,"label":"/users/1","responseCode":200,"success":true,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Get User 1"}],"/nonexistent":[{"timestamp":1754102198297,"elapsed":0,"label":"/nonexistent","responseCode":404,"success":false,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Invalid Endpoint (404 test)"},{"timestamp":1754102685209,"elapsed":0,"label":"/nonexistent","responseCode":404,"success":false,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Invalid Endpoint (404 test)"},{"timestamp":1754103955739,"elapsed":0,"label":"/nonexistent","responseCode":404,"success":false,"bytes":0,"sentBytes":0,"grpThreads":1,"allThreads":1,"filename":"JSONPlaceholder - Invalid Endpoint (404 test)"}]};
+        const timeSeriesData = [{"timestamp":1754102194620,"responseTime":213.6,"throughput":0.29411764705882354,"errorRate":0.2},{"timestamp":1754102670620,"responseTime":162.8,"throughput":0.29411764705882354,"errorRate":0.2},{"timestamp":1754103945620,"responseTime":159.2,"throughput":0.29411764705882354,"errorRate":0.2}];
+        const endpointStats = [{"label":"/users","samples":3,"average":74.33333333333333,"median":67,"p90":93,"p95":93,"p99":93,"min":63,"max":93,"errorRate":0,"throughput":0.001703462400893977,"receivedKB":0,"avgBytes":0},{"label":"/posts","samples":6,"average":398.6666666666667,"median":255,"p90":730,"p95":730,"p99":730,"min":23,"max":730,"errorRate":0,"throughput":0.003406924801787954,"receivedKB":0,"avgBytes":0},{"label":"/users/1","samples":3,"average":21,"median":19,"p90":28,"p95":28,"p99":28,"min":16,"max":28,"errorRate":0,"throughput":0.001703462400893977,"receivedKB":0,"avgBytes":0},{"label":"/nonexistent","samples":3,"average":0,"median":0,"p90":0,"p95":0,"p99":0,"min":0,"max":0,"errorRate":1,"throughput":0.001703462400893977,"receivedKB":0,"avgBytes":0}];
+        
+        // JMeter Chart configuration
+        Chart.defaults.color = '#4d4d4d';
+        Chart.defaults.borderColor = '#ddd';
+        Chart.defaults.backgroundColor = '#fff';
+        Chart.defaults.lineColor = '#0088cc';
+        Chart.defaults.gridColor = '#e0e0e0';
+
+        // Response Times Over Time Chart
+        new Chart(document.getElementById('responseTimeChart'), {
+            type: 'line',
+            data: {
+                labels: timeSeriesData.map(d => new Date(d.timestamp).toLocaleTimeString()),
+                datasets: [{
+                    label: 'Response Time (ms)',
+                    data: timeSeriesData.map(d => d.responseTime),
+                    borderColor: '#0088cc',
+                    backgroundColor: 'rgba(0, 136, 204, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Response Time (ms)' }
+                    },
+                    x: {
+                        title: { display: true, text: 'Time' }
+                    }
+                }
+            }
+        });
+
+        // Throughput Chart
+        new Chart(document.getElementById('throughputChart'), {
+            type: 'line',
+            data: {
+                labels: timeSeriesData.map(d => new Date(d.timestamp).toLocaleTimeString()),
+                datasets: [{
+                    label: 'Throughput (req/s)',
+                    data: timeSeriesData.map(d => d.throughput),
+                    borderColor: '#5cb85c',
+                    backgroundColor: 'rgba(92, 184, 92, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Requests per Second' }
+                    },
+                    x: {
+                        title: { display: true, text: 'Time' }
+                    }
+                }
+            }
+        });
+
+        // Success/Failure Pie Chart
+        const successCount = 12;
+        const errorCount = 3;
+        
+        new Chart(document.getElementById('successChart'), {
+            type: 'doughnut',
+            data: {
+                labels: ['Success', 'Errors'],
+                datasets: [{
+                    data: [successCount, errorCount],
+                    backgroundColor: ['#5cb85c', '#d9534f'],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 20,
+                            usePointStyle: true
+                        }
+                    }
+                }
+            }
+        });
+
+        // Response Time Percentiles Chart
+        new Chart(document.getElementById('percentilesChart'), {
+            type: 'bar',
+            data: {
+                labels: endpointStats.map(s => s.label.length > 20 ? s.label.substring(0, 20) + '...' : s.label),
+                datasets: [
+                    {
+                        label: '90th Percentile',
+                        data: endpointStats.map(s => s.p90),
+                        backgroundColor: 'rgba(56, 161, 105, 0.8)'
+                    },
+                    {
+                        label: '95th Percentile', 
+                        data: endpointStats.map(s => s.p95),
+                        backgroundColor: 'rgba(217, 158, 46, 0.8)'
+                    },
+                    {
+                        label: '99th Percentile',
+                        data: endpointStats.map(s => s.p99),
+                        backgroundColor: 'rgba(229, 62, 62, 0.8)'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Response Time (ms)' }
+                    },
+                    x: {
+                        title: { display: true, text: 'Endpoints' }
+                    }
+                }
+            }
+        });
+
+        // Modal functionality
+        let currentEndpointChart = null;
+        let currentDistributionChart = null;
+
+        function showEndpointDetails(endpoint) {
+            const modal = document.getElementById('endpointModal');
+            const title = document.getElementById('modalTitle');
+            title.textContent = `📊 ${endpoint} - Detailed Analysis`;
+            
+            // Get data for this endpoint
+            const endpointRecords = endpointData[endpoint] || [];
+            
+            // Show modal
+            modal.style.display = 'block';
+            
+            // Switch to timeline tab
+            showTab('timeline');
+            
+            // Generate timeline chart
+            setTimeout(() => {
+                generateEndpointTimelineChart(endpoint, endpointRecords);
+                generateEndpointDistributionChart(endpoint, endpointRecords);
+                generateEndpointDetails(endpoint, endpointRecords);
+                generateRawDataTable(endpoint, endpointRecords);
+            }, 100);
+        }
+
+        function closeModal() {
+            document.getElementById('endpointModal').style.display = 'none';
+            if (currentEndpointChart) {
+                currentEndpointChart.destroy();
+                currentEndpointChart = null;
+            }
+            if (currentDistributionChart) {
+                currentDistributionChart.destroy();
+                currentDistributionChart = null;
+            }
+        }
+
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function generateEndpointTimelineChart(endpoint, records) {
+            const ctx = document.getElementById('endpointTimeChart');
+            if (currentEndpointChart) {
+                currentEndpointChart.destroy();
+            }
+            
+            const sortedRecords = records.sort((a, b) => a.timestamp - b.timestamp);
+            
+            currentEndpointChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sortedRecords.map(r => new Date(r.timestamp).toLocaleTimeString()),
+                    datasets: [{
+                        label: 'Response Time (ms)',
+                        data: sortedRecords.map(r => r.elapsed),
+                        borderColor: records.some(r => !r.success) ? '#e53e3e' : '#3182ce',
+                        backgroundColor: `rgba(${records.some(r => !r.success) ? '229, 62, 62' : '49, 130, 206'}, 0.1)`,
+                        fill: true,
+                        tension: 0.1,
+                        pointBackgroundColor: sortedRecords.map(r => r.success ? '#38a169' : '#e53e3e')
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `${endpoint} - Response Times Over Time`
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Response Time (ms)' }
+                        },
+                        x: {
+                            title: { display: true, text: 'Time' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function generateEndpointDistributionChart(endpoint, records) {
+            const ctx = document.getElementById('endpointDistChart');
+            
+            // Create histogram data
+            const responseTimes = records.map(r => r.elapsed);
+            const min = Math.min(...responseTimes);
+            const max = Math.max(...responseTimes);
+            const bucketCount = Math.min(10, records.length);
+            const bucketSize = (max - min) / bucketCount;
+            
+            const buckets = Array(bucketCount).fill(0);
+            const bucketLabels = [];
+            
+            for (let i = 0; i < bucketCount; i++) {
+                const start = min + i * bucketSize;
+                const end = start + bucketSize;
+                bucketLabels.push(`${Math.round(start)}-${Math.round(end)}ms`);
+            }
+            
+            responseTimes.forEach(time => {
+                const bucketIndex = Math.min(Math.floor((time - min) / bucketSize), bucketCount - 1);
+                buckets[bucketIndex]++;
+            });
+            
+            if (currentDistributionChart) {
+                currentDistributionChart.destroy();
+            }
+            
+            currentDistributionChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: bucketLabels,
+                    datasets: [{
+                        label: 'Request Count',
+                        data: buckets,
+                        backgroundColor: 'rgba(0, 136, 204, 0.6)',
+                        borderColor: '#0088cc',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `${endpoint} - Response Time Distribution`
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Number of Requests' }
+                        },
+                        x: {
+                            title: { display: true, text: 'Response Time Range' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function generateEndpointDetails(endpoint, records) {
+            const responseTimes = records.map(r => r.elapsed);
+            const errors = records.filter(r => !r.success);
+            
+            const stats = {
+                samples: records.length,
+                average: responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length,
+                median: calculateMedian(responseTimes),
+                min: Math.min(...responseTimes),
+                max: Math.max(...responseTimes),
+                errorCount: errors.length,
+                errorRate: (errors.length / records.length) * 100,
+                firstRequest: new Date(Math.min(...records.map(r => r.timestamp))),
+                lastRequest: new Date(Math.max(...records.map(r => r.timestamp)))
+            };
+            
+            document.getElementById('endpointStats').innerHTML = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+                    <div class="summary-card">
+                        <div class="summary-value info number">${stats.samples}</div>
+                        <div class="summary-label">Total Samples</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-value ${stats.average < 500 ? 'success' : 'warning'} number">${Math.round(stats.average)}ms</div>
+                        <div class="summary-label">Average Response Time</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-value info number">${Math.round(stats.median)}ms</div>
+                        <div class="summary-label">Median Response Time</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-value ${stats.errorRate === 0 ? 'success' : 'error'} number">${stats.errorRate.toFixed(1)}%</div>
+                        <div class="summary-label">Error Rate</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-value info number">${stats.min}ms</div>
+                        <div class="summary-label">Min Response Time</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-value ${stats.max > 2000 ? 'error' : 'info'} number">${stats.max}ms</div>
+                        <div class="summary-label">Max Response Time</div>
+                    </div>
+                </div>
+                <div style="margin-top: 30px;">
+                    <h3>📅 Test Timeline</h3>
+                    <p><strong>First Request:</strong> ${stats.firstRequest.toLocaleString()}</p>
+                    <p><strong>Last Request:</strong> ${stats.lastRequest.toLocaleString()}</p>
+                    <p><strong>Test Duration:</strong> ${((stats.lastRequest - stats.firstRequest) / 1000 / 60).toFixed(1)} minutes</p>
+                </div>
+            `;
+        }
+
+        function generateRawDataTable(endpoint, records) {
+            const tbody = document.getElementById('rawDataBody');
+            const sortedRecords = records.sort((a, b) => b.timestamp - a.timestamp).slice(0, 100); // Show last 100 requests
+            
+            tbody.innerHTML = sortedRecords.map(record => `
+                <tr>
+                    <td class="number">${new Date(record.timestamp).toLocaleString()}</td>
+                    <td class="number">${record.elapsed}ms</td>
+                    <td class="number ${record.success ? 'success' : 'error'}">${record.responseCode}</td>
+                    <td class="${record.success ? 'success' : 'error'}">${record.success ? '✅' : '❌'}</td>
+                </tr>
+            `).join('');
+        }
+
+        function calculateMedian(values) {
+            const sorted = values.slice().sort((a, b) => a - b);
+            const middle = Math.floor(sorted.length / 2);
+            return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('endpointModal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+    </script>
+</body>
+</html>

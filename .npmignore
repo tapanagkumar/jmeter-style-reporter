@@ -1,0 +1,63 @@
+# Source files (only ship dist)
+src/
+tests/
+examples/
+
+# Development files
+.env
+.env.*
+*.log
+*.tgz
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git files
+.git/
+.gitignore
+
+# Development dependencies
+node_modules/
+coverage/
+.nyc_output/
+
+# Build artifacts (keep only what's needed)
+dist/*.map
+*.tsbuildinfo
+
+# Documentation source (keep final docs)
+docs/
+*.draft.md
+
+# Test files
+jest.config.js
+.eslintrc.*
+.prettierrc.*
+tsconfig.json
+tsup.config.ts
+
+# CI files
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Development scripts
+scripts/
+
+# Architecture and implementation docs (keep user-facing docs only)
+jmeter-style-reporter-architecture.md
+jmeter-style-reporter-implementation.md
+jmeter-style-reporter-package-structure.md
+
+# Temporary files
+tmp/
+temp/
+.cache/
