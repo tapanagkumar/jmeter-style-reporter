@@ -2581,6 +2581,14 @@ export function performanceMiddleware(collector: PerformanceCollector) {
   }
 }
 
+// Import enhanced features
+export * from './jmeter-reporter'
+export { 
+  JMeterPerformanceCollector as EnhancedCollector,
+  generateJMeterReport as generateEnhancedReport,
+  StatisticsCalculator
+} from './jmeter-reporter'
+
 // Export everything
 export default {
   createCollector,
