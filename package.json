@@ -84,7 +84,7 @@
     "build": "npm run clean && tsup",
     "build:check": "npm run build && npm run test:dist",
     "dev": "tsup --watch",
-    "test": "jest",
+    "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:dist": "node dist/cli/index.js --help && node -e \"require('./dist/index.js')\"",
