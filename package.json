@@ -1,6 +1,6 @@
 {
   "name": "jmeter-style-reporter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Unified performance testing and reporting system with JMeter-style HTML reports and high-performance data collection",
   "keywords": [
     "jmeter",
