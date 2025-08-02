@@ -60,10 +60,10 @@ Options:
       const embeddedChartsFlag = args.includes('--embedded-charts')
 
       const themeValue = themeIndex > -1 ? args[themeIndex + 1] : 'auto'
-      const validThemes = ['light', 'dark', 'auto']
-      let theme = 'auto'
-      if (validThemes.includes(themeValue)) {
-        theme = themeValue
+      const validThemes: ('light' | 'dark' | 'auto')[] = ['light', 'dark', 'auto']
+      let theme: 'light' | 'dark' | 'auto' = 'auto'
+      if (validThemes.includes(themeValue as 'light' | 'dark' | 'auto')) {
+        theme = themeValue as 'light' | 'dark' | 'auto'
       }
       
       const options = {
