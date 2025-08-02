@@ -11,7 +11,7 @@ async function main() {
   
   if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     console.log(`
-JMeter Style Reporter v1.1.1
+JMeter Style Reporter v1.2.0
 
 Usage:
   jmeter-style-reporter <command> [options]
@@ -38,7 +38,7 @@ Options:
   }
 
   if (args.includes('--version') || args.includes('-v')) {
-    console.log('1.1.1')
+    console.log('1.2.0')
     process.exit(0)
   }
 
