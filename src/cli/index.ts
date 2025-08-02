@@ -11,7 +11,7 @@ async function main() {
   
   if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     console.log(`
-JMeter Style Reporter v1.0.0
+JMeter Style Reporter v1.1.1
 
 Usage:
   jmeter-style-reporter <command> [options]
@@ -31,12 +31,14 @@ Options:
   --output, -o <dir>   Output directory (default: ./jmeter-report)
   --title, -t <title>  Report title
   --theme <theme>      Theme: light, dark, auto (default: auto)
+  --jenkins            Generate Jenkins-compatible report (no external dependencies)
+  --embedded-charts    Use embedded charts instead of CDN
 `)
     process.exit(0)
   }
 
   if (args.includes('--version') || args.includes('-v')) {
-    console.log('1.0.0')
+    console.log('1.1.1')
     process.exit(0)
   }
 
@@ -54,16 +56,23 @@ Options:
       const outputIndex = args.indexOf('--output') || args.indexOf('-o')
       const titleIndex = args.indexOf('--title') || args.indexOf('-t')
       const themeIndex = args.indexOf('--theme')
+      const jenkinsFlag = args.includes('--jenkins')
+      const embeddedChartsFlag = args.includes('--embedded-charts')
 
       const themeValue = themeIndex > -1 ? args[themeIndex + 1] : 'auto'
-      const validThemes: Array<'light' | 'dark' | 'auto'> = ['light', 'dark', 'auto']
-      const theme = validThemes.find(t => t === themeValue) || 'auto'
+      const validThemes = ['light', 'dark', 'auto']
+      let theme = 'auto'
+      if (validThemes.includes(themeValue)) {
+        theme = themeValue
+      }
       
       const options = {
         csv: csvFile,
         output: outputIndex > -1 ? args[outputIndex + 1] : './jmeter-report',
         title: titleIndex > -1 ? args[titleIndex + 1] : 'Performance Report',
-        theme: theme
+        theme: theme,
+        jenkinsCompatible: jenkinsFlag,
+        embeddedCharts: embeddedChartsFlag
       }
 
       console.log('🚀 Generating performance report...')

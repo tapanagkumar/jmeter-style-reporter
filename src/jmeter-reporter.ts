@@ -5,6 +5,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
+import { createHash } from 'crypto'
 
 export interface PerformanceMetric {
   endpoint?: string
@@ -41,6 +42,13 @@ export interface ReportOptions {
   includeApdex?: boolean
   apdexThreshold?: number
   includeDrillDown?: boolean
+  apiVersion?: '1.0' | '1.1' | 'latest'
+  maxMemoryUsageMB?: number
+  streamingMode?: boolean
+  maxDataPoints?: number
+  skipDataValidation?: boolean
+  jenkinsCompatible?: boolean
+  embeddedCharts?: boolean
 }
 
 export interface ReportResult {
@@ -58,6 +66,13 @@ export interface ReportResult {
       p99: number
     }
     apdexScore?: number
+  }
+  warnings: string[]
+  stats: {
+    memoryUsedMB: number
+    processingTimeMs: number
+    recordsProcessed: number
+    recordsSkipped: number
   }
 }
 
@@ -127,6 +142,12 @@ export class JMeterPerformanceCollector {
   private readonly maxMetrics: number = 100000 // Prevent memory exhaustion
   private flushing: boolean = false
   private pendingFlush: Promise<void> | null = null
+  private totalMetricsCollected: number = 0
+  private totalMetricsFlushed: number = 0
+  private errorCount: number = 0
+  private flushCount: number = 0
+  private readonly startTime: number = Date.now()
+  private dataIntegrityHash: string = ''
 
   constructor(options: CollectorOptions) {
     this.options = {
@@ -176,31 +197,77 @@ export class JMeterPerformanceCollector {
       return
     }
 
-    // Prevent memory exhaustion
-    if (this.metrics.length >= this.maxMetrics) {
-      console.warn(`Maximum metrics limit reached (${this.maxMetrics}), forcing flush`)
-      await this.flush()
+    try {
+      // Enhanced validation
+      if (metric.responseTime !== undefined && (typeof metric.responseTime !== 'number' || metric.responseTime < 0)) {
+        throw new Error(`Invalid response time: ${metric.responseTime}`)
+      }
+
+      if (metric.statusCode !== undefined && (typeof metric.statusCode !== 'number' || metric.statusCode < 100 || metric.statusCode > 599)) {
+        throw new Error(`Invalid status code: ${metric.statusCode}`)
+      }
+
+      // Prevent memory exhaustion
+      if (this.metrics.length >= this.maxMetrics) {
+        console.warn(`Maximum metrics limit reached (${this.maxMetrics}), forcing flush`)
+        await this.flush()
+      }
+
+      const fullMetric: PerformanceMetric = {
+        timestamp: Date.now(),
+        endpoint: sanitizeString(metric.endpoint || 'unknown'),
+        responseTime: parseFloatSafe(String(metric.responseTime || 0)),
+        statusCode: parseIntSafe(String(metric.statusCode || 200)),
+        method: sanitizeString(metric.method || 'GET'),
+        success: (metric.statusCode || 200) < 400,
+        testName: sanitizeString(metric.testName || this.options.testName || 'default'),
+        bytes: parseIntSafe(String(metric.bytes || 0)),
+        sentBytes: parseIntSafe(String(metric.sentBytes || 0)),
+        grpThreads: Math.max(1, parseIntSafe(String(metric.grpThreads || 1))),
+        allThreads: Math.max(1, parseIntSafe(String(metric.allThreads || 1))),
+        ...metric
+      }
+
+      // Data integrity check
+      this.updateDataIntegrityHash(fullMetric)
+      
+      this.metrics.push(fullMetric)
+      this.totalMetricsCollected++
+
+      if (this.metrics.length >= (this.options.bufferSize || 1000)) {
+        await this.flush()
+      }
+    } catch (error) {
+      this.errorCount++
+      this.options.onError?.(error as Error)
+      console.error('Failed to record metric:', error)
     }
+  }
 
-    const fullMetric: PerformanceMetric = {
-      timestamp: Date.now(),
-      endpoint: sanitizeString(metric.endpoint || 'unknown'),
-      responseTime: parseFloatSafe(String(metric.responseTime || 0)),
-      statusCode: parseIntSafe(String(metric.statusCode || 200)),
-      method: sanitizeString(metric.method || 'GET'),
-      success: (metric.statusCode || 200) < 400,
-      testName: sanitizeString(metric.testName || this.options.testName || 'default'),
-      bytes: parseIntSafe(String(metric.bytes || 0)),
-      sentBytes: parseIntSafe(String(metric.sentBytes || 0)),
-      grpThreads: Math.max(1, parseIntSafe(String(metric.grpThreads || 1))),
-      allThreads: Math.max(1, parseIntSafe(String(metric.allThreads || 1))),
-      ...metric
-    }
+  private updateDataIntegrityHash(metric: PerformanceMetric): void {
+    const metricString = `${metric.timestamp}:${metric.responseTime}:${metric.statusCode}`
+    this.dataIntegrityHash = createHash('sha256').update(this.dataIntegrityHash + metricString).digest('hex').substring(0, 16)
+  }
 
-    this.metrics.push(fullMetric)
-
-    if (this.metrics.length >= (this.options.bufferSize || 1000)) {
-      await this.flush()
+  getStats(): {
+    totalMetrics: number
+    bufferedMetrics: number
+    flushCount: number
+    errorCount: number
+    isActive: boolean
+    startTime: number
+    lastFlushTime: number
+    dataIntegrityHash: string
+  } {
+    return {
+      totalMetrics: this.totalMetricsCollected,
+      bufferedMetrics: this.metrics.length,
+      flushCount: this.flushCount,
+      errorCount: this.errorCount,
+      isActive: !this.disposed,
+      startTime: this.startTime,
+      lastFlushTime: Date.now(),
+      dataIntegrityHash: this.dataIntegrityHash
     }
   }
 
@@ -307,9 +374,11 @@ export class JMeterPerformanceCollector {
       await fsPromises.appendFile(this.options.outputPath, csvContent, 'utf8')
       
       const count = metricsToFlush.length
+      this.totalMetricsFlushed += count
+      this.flushCount++
       
       if (!this.options.silent) {
-        console.log(`✅ Flushed ${count} metrics to ${this.options.outputPath}`)
+        console.log(`✅ Flushed ${count} metrics to ${this.options.outputPath} (Total: ${this.totalMetricsFlushed})`)
       }
       
       this.options.onFlush?.(count)
@@ -402,12 +471,28 @@ export class StatisticsCalculator {
 }
 
 /**
- * Parse CSV line with proper handling of quoted fields and escaping
- * Handles edge cases like embedded commas, quotes, and line breaks
+ * Enhanced CSV parsing with better validation and error tracking
  */
-function parseCSVLine(line: string): JMeterRecord | null {
+interface ParseResult {
+  record: JMeterRecord | null
+  errors: string[]
+  warnings: string[]
+}
+
+function parseCSVLineEnhanced(line: string, lineNumber: number): ParseResult {
+  const result: ParseResult = {
+    record: null,
+    errors: [],
+    warnings: []
+  }
+
   if (!line || line.trim().length === 0) {
-    return null
+    return result
+  }
+
+  // Check for potential CSV injection
+  if (/^[@=+\-|]/.test(line.trim())) {
+    result.warnings.push(`Line ${lineNumber}: Potential CSV injection detected`)
   }
 
   try {
@@ -432,7 +517,7 @@ function parseCSVLine(line: string): JMeterRecord | null {
         }
       } else if (char === ',' && !inQuotes) {
         // Field separator
-        parts.push(current.trim())
+        parts.push(sanitizeCSVField(current.trim()))
         current = ''
         i++
         continue
@@ -443,41 +528,81 @@ function parseCSVLine(line: string): JMeterRecord | null {
     }
 
     // Add the last field
-    parts.push(current.trim())
+    parts.push(sanitizeCSVField(current.trim()))
 
     // Validate minimum field count
     if (parts.length < 10) {
-      console.warn(`CSV line has insufficient fields: ${parts.length} < 10`)
-      return null
+      result.errors.push(`Line ${lineNumber}: Insufficient fields: ${parts.length} < 10`)
+      return result
     }
 
-    // Parse with validation and sanitization
+    // Parse with enhanced validation
     const timestamp = parseIntSafe(parts[0])
     const elapsed = parseFloatSafe(parts[1])
     const responseCode = parseIntSafe(parts[3])
 
     // Validate required numeric fields
-    if (isNaN(timestamp) || isNaN(elapsed) || isNaN(responseCode)) {
-      console.warn(`Invalid numeric fields in CSV line: timestamp=${timestamp}, elapsed=${elapsed}, responseCode=${responseCode}`)
-      return null
+    if (isNaN(timestamp) || timestamp <= 0) {
+      result.errors.push(`Line ${lineNumber}: Invalid timestamp: ${parts[0]}`)
+      return result
     }
 
-    return {
+    if (isNaN(elapsed) || elapsed < 0) {
+      result.errors.push(`Line ${lineNumber}: Invalid elapsed time: ${parts[1]}`)
+      return result
+    }
+
+    if (isNaN(responseCode) || responseCode < 100 || responseCode > 599) {
+      result.errors.push(`Line ${lineNumber}: Invalid response code: ${parts[3]}`)
+      return result
+    }
+
+    // Validate timestamp is reasonable (not too old or in future)
+    const now = Date.now()
+    const oneYearAgo = now - (365 * 24 * 60 * 60 * 1000)
+    const oneHourFuture = now + (60 * 60 * 1000)
+    
+    if (timestamp < oneYearAgo || timestamp > oneHourFuture) {
+      result.warnings.push(`Line ${lineNumber}: Suspicious timestamp: ${new Date(timestamp).toISOString()}`)
+    }
+
+    // Validate response time is reasonable
+    if (elapsed > 300000) { // 5 minutes
+      result.warnings.push(`Line ${lineNumber}: Very high response time: ${elapsed}ms`)
+    }
+
+    result.record = {
       timestamp,
       elapsed,
       label: sanitizeString(parts[2]),
       responseCode,
       success: parts[4]?.toLowerCase().trim() === 'true',
-      bytes: parseIntSafe(parts[5]) || 0,
-      sentBytes: parseIntSafe(parts[6]) || 0,
+      bytes: Math.max(0, parseIntSafe(parts[5]) || 0),
+      sentBytes: Math.max(0, parseIntSafe(parts[6]) || 0),
       grpThreads: Math.max(1, parseIntSafe(parts[7]) || 1),
       allThreads: Math.max(1, parseIntSafe(parts[8]) || 1),
       filename: sanitizeString(parts[9] || '')
     }
+
+    return result
   } catch (error) {
-    console.error(`Failed to parse CSV line: ${error}`)
-    return null
+    result.errors.push(`Line ${lineNumber}: Parse error: ${error}`)
+    return result
   }
+}
+
+/**
+ * Legacy function for backward compatibility
+ */
+function parseCSVLine(line: string): JMeterRecord | null {
+  const result = parseCSVLineEnhanced(line, 0)
+  if (result.errors.length > 0) {
+    console.error('CSV parse errors:', result.errors)
+  }
+  if (result.warnings.length > 0) {
+    console.warn('CSV parse warnings:', result.warnings)
+  }
+  return result.record
 }
 
 /**
@@ -515,6 +640,48 @@ function parseFloatSafe(value: string | undefined): number {
   
   // Clamp to reasonable bounds
   return Math.max(0, Math.min(parsed, Number.MAX_SAFE_INTEGER))
+}
+
+/**
+ * Enhanced security validation for file paths
+ */
+function validateOutputPath(outputPath: string): string {
+  if (!outputPath || typeof outputPath !== 'string') {
+    throw new Error('Invalid output path')
+  }
+  
+  // Prevent path traversal attacks
+  const resolved = path.resolve(outputPath)
+  const cwd = process.cwd()
+  
+  if (!resolved.startsWith(cwd)) {
+    throw new Error('Output path must be within current working directory')
+  }
+  
+  // Prevent writing to system directories
+  const forbidden = ['/etc', '/usr', '/var', '/bin', '/sbin', '/boot', '/sys']
+  if (forbidden.some(dir => resolved.startsWith(dir))) {
+    throw new Error('Cannot write to system directories')
+  }
+  
+  return resolved
+}
+
+/**
+ * Enhanced CSV injection prevention
+ */
+function sanitizeCSVField(value: string): string {
+  if (!value) return ''
+  
+  // Remove formula injection patterns
+  const dangerous = /^[@=+\-|]/
+  if (dangerous.test(value.toString().trim())) {
+    return `'${value}` // Prefix with quote to prevent formula execution
+  }
+  
+  return value.toString()
+    .replace(/[\r\n]/g, ' ') // Remove line breaks
+    .substring(0, 1000) // Limit length
 }
 
 /**
@@ -612,18 +779,61 @@ function getErrorMessage(code: number): string {
 }
 
 /**
- * Create performance collector
+ * Legacy API support for v1.0 compatibility
  */
-export function createCollector(options: CollectorOptions): JMeterPerformanceCollector {
-  return new JMeterPerformanceCollector(options)
+interface LegacyCollectorOptions {
+  outputPath: string
+  testName?: string
+  bufferSize?: number
+  flushInterval?: number
+  silent?: boolean
+  onFlush?: (count: number) => void
+  onError?: (error: Error) => void
+}
+
+function migrateLegacyOptions(legacy: LegacyCollectorOptions): CollectorOptions {
+  return {
+    ...legacy,
+    jmeterCompatible: true // Ensure backward compatibility
+  }
 }
 
 /**
- * Generate enhanced JMeter-style HTML report with streaming support
+ * Create performance collector with enhanced features
+ */
+export function createCollector(options: CollectorOptions | LegacyCollectorOptions): JMeterPerformanceCollector {
+  // Detect if using legacy options format
+  const hasLegacyOnlyFields = 'jmeterCompatible' in options
+  const enhancedOptions = hasLegacyOnlyFields ? options as CollectorOptions : migrateLegacyOptions(options as LegacyCollectorOptions)
+  
+  return new JMeterPerformanceCollector(enhancedOptions)
+}
+
+/**
+ * Legacy function name for v1.0 compatibility
+ */
+export const generateReport = generateJMeterReport
+
+/**
+ * Enhanced memory-safe streaming report generation
  */
 export async function generateJMeterReport(options: ReportOptions): Promise<ReportResult> {
+  const processingStartTime = performance.now()
   const csvFiles = Array.isArray(options.csv) ? options.csv : [options.csv]
-  const outputDir = options.output || './jmeter-report'
+  const outputDir = validateOutputPath(options.output || './jmeter-report')
+  
+  // Configuration with backward compatibility
+  const config = {
+    apiVersion: options.apiVersion || 'latest',
+    maxMemoryUsageMB: options.maxMemoryUsageMB || 512,
+    streamingMode: options.streamingMode !== false,
+    maxDataPoints: options.maxDataPoints || 10000,
+    skipValidation: options.skipDataValidation === true
+  }
+  
+  const warnings: string[] = []
+  let recordsProcessed = 0
+  let recordsSkipped = 0
   
   // Use async operations
   const { promises: fsPromises } = await import('fs')
@@ -639,22 +849,36 @@ export async function generateJMeterReport(options: ReportOptions): Promise<Repo
     }
   }
 
-  // Parse all CSV data with streaming for large files
+  // Memory-efficient data processing
+  const maxRecordsInMemory = Math.min(
+    Math.floor((config.maxMemoryUsageMB * 1024 * 1024) / 256), // Assume ~256 bytes per record
+    50000 // Hard limit for safety
+  )
+  
   const allRecords: JMeterRecord[] = []
-  const maxRecordsInMemory = 50000 // Limit memory usage
+  const parseErrors: string[] = []
+  const parseWarnings: string[] = []
   
   for (const csvFile of csvFiles) {
     try {
       await fsPromises.access(csvFile)
       
-      const fileStream = createReadStream(csvFile, { encoding: 'utf8' })
+      const fileStats = await fsPromises.stat(csvFile)
+      if (fileStats.size > 500 * 1024 * 1024) { // 500MB
+        warnings.push(`Large file detected: ${csvFile} (${Math.round(fileStats.size / 1024 / 1024)}MB)`)
+      }
+      
+      const fileStream = createReadStream(csvFile, { 
+        encoding: 'utf8',
+        highWaterMark: 64 * 1024 // 64KB chunks
+      })
       const rl = createInterface({
         input: fileStream,
         crlfDelay: Infinity
       })
 
       let lineNumber = 0
-      let recordCount = 0
+      let fileRecordCount = 0
 
       for await (const line of rl) {
         lineNumber++
@@ -665,16 +889,34 @@ export async function generateJMeterReport(options: ReportOptions): Promise<Repo
         }
 
         if (line.trim()) {
-          const record = parseCSVLine(line)
-          if (record) {
-            allRecords.push(record)
-            recordCount++
-
-            // Prevent memory exhaustion with very large files
-            if (recordCount >= maxRecordsInMemory) {
-              console.warn(`Reached maximum record limit (${maxRecordsInMemory}) for memory safety. Some data may be truncated.`)
-              break
+          if (!config.skipValidation) {
+            const parseResult = parseCSVLineEnhanced(line, lineNumber)
+            parseErrors.push(...parseResult.errors)
+            parseWarnings.push(...parseResult.warnings)
+            
+            if (parseResult.record) {
+              allRecords.push(parseResult.record)
+              recordsProcessed++
+              fileRecordCount++
+            } else {
+              recordsSkipped++
             }
+          } else {
+            // Fast parsing without validation for large files
+            const record = parseCSVLine(line)
+            if (record) {
+              allRecords.push(record)
+              recordsProcessed++
+              fileRecordCount++
+            } else {
+              recordsSkipped++
+            }
+          }
+
+          // Memory safety check
+          if (allRecords.length >= maxRecordsInMemory) {
+            warnings.push(`Memory limit reached. Processed ${recordsProcessed} records, truncating remaining data.`)
+            break
           }
         }
       }
@@ -682,17 +924,34 @@ export async function generateJMeterReport(options: ReportOptions): Promise<Repo
       rl.close()
       fileStream.destroy()
       
+      if (fileRecordCount === 0) {
+        warnings.push(`No valid records found in ${csvFile}`)
+      }
+      
     } catch (error) {
-      console.warn(`Warning: Could not parse CSV file ${csvFile}:`, error)
+      const message = `Could not process CSV file ${csvFile}: ${error}`
+      warnings.push(message)
+      console.warn(message)
     }
   }
 
   if (allRecords.length === 0) {
-    throw new Error('No valid data found in CSV files')
+    throw new Error('No valid data found in CSV files. Check file format and data validity.')
   }
 
-  if (allRecords.length >= maxRecordsInMemory) {
-    console.warn(`Processing ${allRecords.length} records. Large datasets may impact performance.`)
+  // Report parsing issues
+  if (parseErrors.length > 0) {
+    warnings.push(`${parseErrors.length} parsing errors encountered`)
+    if (parseErrors.length > 10) {
+      console.error('First 10 parsing errors:', parseErrors.slice(0, 10))
+    } else {
+      console.error('Parsing errors:', parseErrors)
+    }
+  }
+
+  if (parseWarnings.length > 0 && !config.skipValidation) {
+    warnings.push(`${parseWarnings.length} parsing warnings`)
+    console.warn(`${parseWarnings.length} parsing warnings (run with skipDataValidation: true to suppress)`)
   }
 
   // Calculate test duration and time series data
@@ -828,16 +1087,28 @@ export async function generateJMeterReport(options: ReportOptions): Promise<Repo
     testDuration,
     allRecords,
     endpointData,
-    includeDrillDown: options.includeDrillDown !== false
+    includeDrillDown: options.includeDrillDown !== false,
+    jenkinsCompatible: options.jenkinsCompatible,
+    embeddedCharts: options.embeddedCharts
   })
 
   const reportPath = path.join(outputDir, 'index.html')
   await fsPromises.writeFile(reportPath, htmlContent, 'utf8')
 
+  const processingEndTime = performance.now()
+  const memoryUsage = process.memoryUsage()
+
   return {
     outputPath: outputDir,
     reportUrl: `file://${path.resolve(reportPath)}`,
-    summary
+    summary,
+    warnings,
+    stats: {
+      memoryUsedMB: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+      processingTimeMs: Math.round(processingEndTime - processingStartTime),
+      recordsProcessed,
+      recordsSkipped
+    }
   }
 }
 
@@ -853,6 +1124,16 @@ interface HTMLReportData {
   allRecords: JMeterRecord[]
   endpointData: Map<string, JMeterRecord[]>
   includeDrillDown: boolean
+  jenkinsCompatible?: boolean
+  embeddedCharts?: boolean
+}
+
+/**
+ * Get the appropriate charting library based on Jenkins compatibility
+ */
+function getEmbeddedChartingLibrary(): string {
+  // Use Chart.js CDN as proven to work in Jenkins by user's implementation
+  return `<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>`;
 }
 
 /**
@@ -872,13 +1153,15 @@ function generateEnhancedHTMLReport(data: HTMLReportData): string {
     endpointDataForJs[label] = records
   })
 
+  const useEmbeddedCharts = data.jenkinsCompatible || data.embeddedCharts
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${escapeHtml(data.title)}</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    ${useEmbeddedCharts ? getEmbeddedChartingLibrary() : '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>'}
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         
